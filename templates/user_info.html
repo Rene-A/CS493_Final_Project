@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+<!-- https://flask.palletsprojects.com/en/1.1.x/tutorial/templates/ -->
+<h1>{% block title %}User Info{% endblock %}</h1>
+
+{% block header %}
+    <li>This is a simple website intended to demonstrate OAuth 2.0.</li>
+{% endblock %}
+
+{% block homeLink %}Click here to go back.{% endblock %}
+
+{% block content %}
+    <p>This is your JWT:</p>
+    <textarea id="text_data" readonly style="width: 1250px; height: 200px;">{{ token }}</textarea>
+    <p>This is your unique id:</p>
+    <textarea id="text_data" readonly style="width: 1250px; height: 200px;">{{ sub }}</textarea>
+
+{% endblock %}

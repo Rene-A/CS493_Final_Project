@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+<!-- https://flask.palletsprojects.com/en/1.1.x/tutorial/templates/ -->
+<h1>{% block title %}Welcome{% endblock %}</h1>
+
+{% block header %}
+    <li>This is a simple website intended to demonstrate OAuth 2.0.</li>
+{% endblock %}
+
+{% block homeLink %}Welcome{% endblock %}
+
+{% block content %}
+    <p>Clicking the link below should redirect you to log into your Google account.</p>
+    <p>This application will use the requested access to retrieve your JSON Web Token (JWT).</p>
+    <p>Your JWT will be displayed on the "User Info" page.</p>
+    <!-- https://www.w3schools.com/tags/att_button_formmethod.asp -->
+    <!-- https://stackoverflow.com/questions/3206344/passing-html-to-template-using-flask-jinja2 -->
+    <a class="waves-effect waves-light btn-small" href="{{ google_url }}">Attempt to use OAuth 2.0</a>
+
+{% endblock %}
