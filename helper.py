@@ -36,9 +36,7 @@ def has_all_keys(content, listOfKeysExpected):
 # No error checking performed.
 # Returns the new entity as a json object along with a 201 created code on success.
 # The returned json entity will also include the entity's id and self link.
-def create_entity(dsClient, request, keysExpected, kindOfEntity):
-
-    content = request.get_json()
+def create_entity(dsClient, request, content, keysExpected, kindOfEntity):
 
     new_entity = datastore.entity.Entity(key=dsClient.key(kindOfEntity))
 
@@ -55,39 +53,67 @@ def create_entity(dsClient, request, keysExpected, kindOfEntity):
 
 # Creates a user entity.  Returns the new entity as a json object along with a 201 created code on success.
 # The returned json entity will also include the entity's id and self link.
-def create_user(dsClient, request):
+def create_user(dsClient, request, content):
 
     keysExpected = ["unique_id"]
 
-    return create_entity(dsClient, request, keysExpected, constants.libraries)
+    return create_entity(dsClient, request, content, keysExpected, constants.users)
 
 
 # Creates a library entity.  Returns the new entity as a json object along with a 201 created code on success.
 # The returned json entity will also include the entity's id and self link.
+# { "id": 123,
+#   "name": "Great Library",
+#   "street_address": "123 Real Street",
+#   "county": "Fairfax",
+#   "state": "Virginia"
+#   "librarian": <current_user>
+#   "books": []
+#   "self": <link>
+# }
 def create_library(dsClient, request, owner_sub):
 
     content = request.get_json()
 
-    keysExpected = ["name", "street_address", "county", "state"]
-
-    new_library = datastore.entity.Entity(key=dsClient.key(constants.libraries))
-
-    newInfo = fill_entity(content, keysExpected)
+    keysExpected = ["name", "street_address", "county", "state", "librarian", "books"]
 
     query = dsClient.query(kind=constants.users)
     query.add_filter("unique_id", "=", owner_sub)
 
     librarian = list(query.fetch())[0]
 
-    newInfo["librarian"] = {"id": librarian.key.id}
+    content["librarian"] = {"id": librarian.key.id}
+    content["books"] = []
 
-    new_library.update(newInfo)
-    dsClient.put(new_library)
+    new_library, status = create_entity(dsClient, request, content, keysExpected, constants.libraries)
 
-    new_library["id"] = str(new_library.key.id)
-    new_library["self"] = get_self(request, constants.libraries, new_library["id"])
+    new_library["librarian"]["self"] = get_self(request, constants.users, new_library["librarian"]["id"])
 
-    return new_library, 201
+    return new_library, status
+
+
+# Creates a user entity.  Returns the new entity as a json object along with a 201 created code on success.
+# The returned json entity will also include the entity's id and self link.
+# { "id": 123,
+#   "title": "Good Book",
+#   "author": "Great Author",
+#   "illustrator": "Good Artist",
+#   "library": None
+#   "self": <link>
+# }
+def create_book(dsClient, request):
+
+    content = request.get_json()
+
+    keysExpected = ["title", "author", "illustrator"]
+
+    if "illustrator" not in content.keys():
+
+        content["illustrator"] = None
+
+    content["library"] = None
+
+    return create_entity(dsClient, request, content, keysExpected, constants.libraries)
 
 
 # Returns the entity of type kindOfEntity with the provided id and self link.
@@ -108,17 +134,36 @@ def get_entity_with_info(dsClient, request, kindOfEntity, id):
     return entity, 200
 
 
-# Returns a boat with the provided id and self link.  Returns an error message if the entity is not found.
-# Otherwise, returns a boat entity along with a status code.
-def get_library_with_status(dsClient, request, id):
+# Returns a library with the provided id and self link if everything works correctly.
+# Returns an error message and 403 status if the library does not belong to the user.
+# Returns an error message and 404 status if the entity is not found.
+def get_library_with_status(dsClient, request, id, sub):
 
-    boat, status = get_entity_with_info(dsClient, request, constants.libraries, id)
+    if user_owns_library(dsClient, id, sub) is False:
+        payload = {"Error": constants.error_403_no_access}
+        status = 403
+        return payload, status
+
+    library, status = get_entity_with_info(dsClient, request, constants.libraries, id)
 
     if status == 404:
-        # We couldn't find a boat with that id.
+        # We couldn't find a library with that id.
         return {"Error": constants.error_404_no_library}, 404
 
-    return boat, 200
+    return library, 200
+
+
+# Returns a book with the provided id and self link.  Returns an error message if the entity is not found.
+# Otherwise, returns a book entity along with a status code.
+def get_book_with_status(dsClient, request, id):
+
+    book, status = get_entity_with_info(dsClient, request, constants.books, id)
+
+    if status == 404:
+        # We couldn't find a book with that id.
+        return {"Error": constants.error_404_no_book}, 404
+
+    return book, 200
 
 
 # Returns a list of all occurrences of a given kind of entity with id and self link included.
@@ -173,37 +218,177 @@ def delete_library(dsClient, id, sub):
         # We couldn't find a library with that id.
         return {"Error": constants.error_404_no_library}, 404
 
-    elif library["sub"] != sub:
+    elif user_owns_library(dsClient, id, sub) is False:
 
         return {"Error": constants.error_403_no_access}, 403
+
+    # Similar structure as our Viewing Reservations example in Demo of Intermediate REST API Features in Python
+    # adjusted to change my book values.
+    for book in library["books"]:
+        book_key = dsClient.key(constants.books, int(book["id"]))
+        book_entity = dsClient.get(key=book_key)
+        book_entity["library"] = None
+        dsClient.put(book_entity)
 
     dsClient.delete(library_key)
 
     return "", 204
 
 
+def delete_book(dsClient, id):
+
+    book_key = dsClient.key(constants.books, int(id))
+    book = dsClient.get(key=book_key)
+
+    # https://realpython.com/null-in-python/
+    if book is None:
+        # We couldn't find a book with that id.
+        return {"Error": constants.error_404_no_book}, 404
+
+    if book["library"] is not None:
+
+        library_key = dsClient.key(constants.books, int(id))
+        library = dsClient.get(key=library_key)
+
+        # Remove our book from the library
+        # https://www.geeksforgeeks.org/python-removing-dictionary-from-list-of-dictionaries/
+        # https://docs.python.org/3/library/stdtypes.html#range
+        for i in range(len(library["books"])):
+
+            if library["books"][i]["id"] == id:
+                del library["books"][i]
+                dsClient.put(library)
+                break
+
+    dsClient.delete(book_key)
+
+    return "", 204
+
+
 # Updates a kindOfEntity that has the provided id.
-# Returns None if no such entity with that id exists. Otherwise, returns the updated entity.
-def update_entity(dsClient, content, listOfKeys, kindOfEntity, id):
+# Returns None with a status of 404 if no such entity with that id exists. Otherwise, returns the updated entity with
+# a 200 status code.
+def update_entity(dsClient, request, content, listOfKeys, kindOfEntity, id):
 
     entity = dsClient.get(key=dsClient.key(kindOfEntity, int(id)))
 
     # https://realpython.com/null-in-python/
     if entity is None:
-        # We couldn't find a boat with that id.
-        return None
+        # We couldn't find a entity with that id.
+        return None, 404
 
     newInfo = fill_entity(content, listOfKeys)
     entity.update(newInfo)
     dsClient.put(entity)
 
-    return entity
+    entity["id"] = str(entity.key.id)
+    entity["self"] = get_self(request, kindOfEntity, entity["id"])
+
+    return entity, 200
 
 
-# Patches parts of an boat entity.  The boat may have any attribute updated expect for id.
-# Invalid input and extra attributes will return an error message and 400 status.
-# The boat name that is not unique will return an error message and 403 status.
+# Method to simplify the library update.  Returns a library and 200 status if everything went smoothly.
+# Returns an error message and 404 status if the id does not belong to a library.
+# Returns an error message and 403 status if the library does not belong to the user.
+# The library will be returned with it's id and self attributes added.
+def update_library(dsClient, request, attributesToChange, id, sub):
+
+    content = request.get_json()
+
+    if user_owns_library(dsClient, id, sub) is False:
+
+        payload = {"Error": constants.error_403_no_access}
+        status = 403
+        return payload, status
+
+    library, status = update_entity(dsClient, request, content, attributesToChange, constants.libraries, id)
+
+    if status == 404:
+
+        library = {"Error": constants.error_404_no_library}
+
+    return library, status
+
+
+# Patches parts of an library entity.  The library may have any attribute updated expect for id or attributes related
+# to a relationship with other entities.
+# Attempting to patch a library that doesn't belong to the user will return an error message and 403 status.
 # An invalid id will return an error message and 404 status.
+def patch_library(dsClient, request, id, sub):
+
+    content = request.get_json()
+
+    potential_keys = ["name", "street_address", "county", "state"]
+    keysFound = getValidKeys(content, potential_keys)
+
+    return update_library(dsClient, request, keysFound, id, sub)
+
+
+# Patches an entire library entity.  The library will update every attribute except the id or attributes related to
+# a relationship with other entities.
+# Attempting to patch a library that doesn't belong to the user will return an error message and 403 status.
+# An invalid id will return an error message and 404 status.
+def put_library(dsClient, request, id, sub):
+
+    keysExpected = ["name", "street_address", "county", "state"]
+
+    return update_library(dsClient, request, keysExpected, id, sub)
+
+
+# Method to simplify the books update.  Returns a book and 200 status if everything went smoothly.
+# Returns an error message and 404 status if the id does not belong to a book.
+# The book will be returned with it's id and self attributes added.
+def update_book(dsClient, request, attributesToChange, id):
+
+    content = request.get_json()
+
+    library, status = update_entity(dsClient, request, content, attributesToChange, constants.books, id)
+
+    if status == 404:
+
+        library = {"Error": constants.error_404_no_book}
+
+    return library, status
+
+
+# Patches parts of an book entity.  The book may have any attribute updated expect for id or attributes related
+# to a relationship with other entities.
+# An invalid id will return an error message and 404 status.
+def patch_book(dsClient, request, id):
+
+    content = request.get_json()
+
+    potential_keys = ["title", "author", "illustrator"]
+    keysFound = getValidKeys(content, potential_keys)
+
+    return update_book(dsClient, request, keysFound, id)
+
+
+# Patches an entire book entity.  Must change the title, author, and illustrator.
+# An invalid id will return an error message and 404 status.
+def put_book(dsClient, request, id):
+
+    content = request.get_json()
+
+    keysExpected = ["title", "author", "illustrator"]
+
+    return update_book(dsClient, request, keysExpected, id)
+
+
+# Returns a list of all valid keys found.
+def getValidKeys(content, listOfKeysExpected):
+
+    listToReturn = []
+
+    for key in content.keys():
+
+        if key in listOfKeysExpected:
+
+            listToReturn.append(key)
+
+    return listToReturn
+
+
 # Constructs the link for this entity's url.
 def get_self(request, name, id):
 
@@ -223,20 +408,33 @@ def library_exists(dsClient, id):
     return True
 
 
+# Returns true if a book with this id exists.  Returns false, otherwise.
+def book_exists(dsClient, id):
+
+    library_key = dsClient.key(constants.libraries, int(id))
+    library = dsClient.get(key=library_key)
+
+    if library is None:
+
+        return False
+
+    return True
+
+
 # Returns a list of all occurrences of a library with id and self link included.
 # Also adds the self link to every libraries's books.
 # Now have to add pagination
 # { next: link to next page
 #   count: 3
 #   libraries: [{lib1}, {lib2}, {lib3}] }
-def getLibraryPage(dsClient, request, owner):
+def get_library_page(dsClient, request, owner):
 
-    offset = int(request.args.get('offset', 0))
+    # offset = int(request.args.get('offset', 0))
 
     filter_criteria = "librarian.unique_id"
     filter_value = owner
 
-    results, next_url, count = getPageInfo(dsClient, request, constants.libraries, filter_criteria, filter_value)
+    results, next_url, count = get_page_info(dsClient, request, constants.libraries, filter_criteria, filter_value)
 
     for library in results:
 
@@ -257,23 +455,20 @@ def getLibraryPage(dsClient, request, owner):
 # Now have to add pagination
 # { next: link to next page
 #   loads: [{load1}, {load2}, {load3}] }
-def getBookPage(dsClient, request):
+def get_book_page(dsClient, request):
 
-    offset = int(request.args.get('offset', 0))
-    if offset < 0:
+    # offset = int(request.args.get('offset', 0))
 
-        return {"Error": constants.error_negative_offset}, 400
+    results, next_url, count = get_page_info(dsClient, request, constants.books)
 
-    results, next_url = getPageInfo(dsClient, request, constants.loads)
+    for book in results:
+        book["id"] = str(book.key.id)
+        book["self"] = get_self(request, constants.books, book["id"])
 
-    for load in results:
-        load["id"] = str(load.key.id)
-        load["self"] = get_self(request, constants.loads, load["id"])
+        if book["library"] is not None:
+            book["library"]["self"] = get_self(request, constants.books, book["library"]["id"])
 
-        if load["carrier"] is not None:
-            load["carrier"]["self"] = get_self(request, constants.boats, load["carrier"]["id"])
-
-    output = {"loads": results, "next": next_url}
+    output = {"next": next_url, "count": count, "loads": results}
 
     return output, 200
 
@@ -282,7 +477,7 @@ def getBookPage(dsClient, request):
 # filter_criteria and filter_value parameters.
 # Returns the resulting page, next_url, and count of total entities in all the pages.
 # This version has a limit of 5 items per page.
-def getPageInfo(dsClient, request, type, filter_criteria=None, filter_value=None):
+def get_page_info(dsClient, request, type, filter_criteria=None, filter_value=None):
 
     limit = 5
     # http://classes.engr.oregonstate.edu/eecs/perpetual/cs493-400/modules/4-more-rest-api-creation/5-use-demo-python/
@@ -312,7 +507,7 @@ def getPageInfo(dsClient, request, type, filter_criteria=None, filter_value=None
 
 
 # Returns true if the sub value matches a user in datastore.  Returns false, otherwise.
-def subMatchesUser(dsClient, sub):
+def sub_matches_user(dsClient, sub):
 
     query = dsClient.query(kind=constants.users)
     query.add_filter("unique_id", "=", sub)
@@ -322,5 +517,95 @@ def subMatchesUser(dsClient, sub):
     if len(results) == 1:
 
         return True
+
+    return False
+
+
+# Returns true if the application is requesting JSON for the returned body.
+# Returns false, otherwise.
+def is_requesting_json(request):
+
+    # Demonstrated in lecture material
+    if 'application/json' in request.accept_mimetypes:
+
+        return True
+
+    return False
+
+
+# Place a book in a library.
+def put_book_in_library(dsClient, request, library_id, book_id, sub):
+
+    library, library_status = get_library_with_status(dsClient, request, library_id)
+
+    book, book_status = get_book_with_status(dsClient, request, book_id)
+
+    if library_status == 404 or book_status == 404:
+
+        return {"Error": constants.error_404_put}, 404
+
+    elif book["library"] is not None or user_owns_library(dsClient, library_id, sub) is False:
+
+        return {"Error": constants.error_403_put}, 403
+
+    # Update our book with the library's information.
+    book["library"] = {
+        "id": library["id"]
+    }
+    dsClient.put(book)
+
+    # Add our book to the library.
+    library["books"].append({"id": book["id"]})
+    dsClient.put(library)
+
+    return '', 204
+
+
+def remove_book_from_library(dsClient, request, library_id, book_id, sub):
+
+    library, library_status = get_library_with_status(dsClient, request, library_id)
+
+    book, book_status = get_book_with_status(dsClient, request, book_id)
+
+    ids_match = book["library"] is not None and book["library"]["id"] == library["id"]
+
+    if library_status == 404 or book_status == 404 or ids_match is False:
+
+        return {"Error": constants.error_404_delete}, 404
+
+    elif user_owns_library(dsClient, library_id, sub) is False:
+
+        return {"Error": constants.error_403_delete}, 403
+
+    # Remove the library.
+    book["library"] = None
+    dsClient.put(book)
+
+    # Remove our book from the library
+    # https://www.geeksforgeeks.org/python-removing-dictionary-from-list-of-dictionaries/
+    # https://docs.python.org/3/library/stdtypes.html#range
+    for i in range(len(library["books"])):
+
+        if library["books"][i]["id"] == book_id:
+            del library["books"][i]
+            dsClient.put(library)
+            break
+
+    return "", 204
+
+
+# Returns true if the user owns the library.  Returns false, otherwise.
+def user_owns_library(dsClient, library_id, sub):
+
+    query = dsClient.query(kind=constants.users)
+    query.add_filter("unique_id", "=", sub)
+
+    user = list(query.fetch())[0]
+
+    for library in user["libraries"]:
+
+        if library["id"] == library_id:
+
+            return True
 
     return False

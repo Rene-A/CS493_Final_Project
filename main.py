@@ -93,9 +93,9 @@ def oauthroute():
 
     # Need to create the user account and store the sub value of their jwt as the user's unique_id.
     # Skip account creation if the user already has an account.  We only need to display their information again.
-    if not helper.subMatchesUser(client, id_info["sub"]):
+    if not helper.sub_matches_user(client, id_info["sub"]):
 
-        helper.create_user(client, {"unique_id": id_info["sub"]})
+        helper.create_user(client, request, {"unique_id": id_info["sub"]})
 
     verify_helper.delete_state(client, state)
 

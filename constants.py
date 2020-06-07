@@ -5,11 +5,12 @@ states = "states"
 
 error_401_bad_jwt = "The JWT is missing or invalid."
 error_403_no_access = "You do not have access to that resource."
-error_403_library_owner = \
+error_403_put = \
     "This book is already assigned to a library, or you are attempting to add to a library you do not own."
-error_403_book_owner = "You may only remove a book from a library you own."
+error_403_delete = "You may only remove a book from a library you own."
 error_404_no_library = "No library with this id exists."
 error_404_no_book = "No book with this id exists."
-error_404_combo = "The specified library and/or book don't exist."
+error_404_put = "The specified library and/or book don't exist."
+error_404_delete = "No book with this book_id is at the library with this library_id."
 error_405_bad_method = "This is not an accepted method."
 error_406_json = "The response body can only be returned in JSON."
