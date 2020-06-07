@@ -55,7 +55,7 @@ def create_entity(dsClient, request, content, keysExpected, kindOfEntity):
 # The returned json entity will also include the entity's id and self link.
 def create_user(dsClient, request, content):
 
-    keysExpected = ["unique_id", "libraries"]
+    keysExpected = ["unique_id", "email", "libraries"]
 
     content["libraries"] = []
 

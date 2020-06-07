@@ -95,7 +95,10 @@ def oauthroute():
     # Skip account creation if the user already has an account.  We only need to display their information again.
     if not helper.sub_matches_user(client, id_info["sub"]):
 
-        helper.create_user(client, request, {"unique_id": id_info["sub"]})
+        payload = {"unique_id": id_info["sub"],
+                   "email": id_info["email"]}
+        # helper.create_user(client, request, {"unique_id": id_info["sub"]})
+        helper.create_user(client, request, payload)
 
     verify_helper.delete_state(client, state)
 
