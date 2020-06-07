@@ -99,7 +99,7 @@ def oauthroute():
 
     verify_helper.delete_state(client, state)
 
-    return render_template("user_info.html", token=token['id_token'], sub=token['sub'])
+    return render_template("user_info.html", token=token['id_token'], sub=id_info['sub'])
 
 
 if __name__ == '__main__':

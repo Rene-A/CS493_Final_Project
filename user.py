@@ -13,17 +13,11 @@ bp = Blueprint('user', __name__, url_prefix='/users')
 # The bits of code on making responses comes straight from the lectures on advanced api
 
 @bp.route('', methods=['POST', 'GET', 'PUT', 'PATCH', 'DELETE'])
-def owner_get(owner_id):
+def owner_get():
     if request.method == 'GET':
 
-        sub = verify_helper.get_sub(request)
-
-        if sub is None:
-
-            return {"Error": constants.error_401_bad_jwt}, 401
-
-        boats, status = helper.get_owner_library_list(client, sub)
-        return json.dumps(boats), status
+        users, status = helper.get_user_list(client, request)
+        return json.dumps(users), status
 
     else:
 
