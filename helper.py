@@ -90,7 +90,7 @@ def create_library(dsClient, request, owner_sub):
 
     new_library, status = create_entity(dsClient, request, content, keysExpected, constants.libraries)
 
-    new_library["librarian"]["self"] = get_self(request, constants.users, new_library["librarian"]["id"])
+    # new_library["librarian"]["self"] = get_self(request, constants.users, new_library["librarian"]["id"])
 
     librarian["libraries"].append({"id": new_library["id"]})
     dsClient.put(librarian)
@@ -156,7 +156,7 @@ def get_library_with_status(dsClient, request, id, sub):
         status = 403
         return payload, status
 
-    library["librarian"]["self"] = get_self(request, constants.users, library["librarian"]["id"])
+    # library["librarian"]["self"] = get_self(request, constants.users, library["librarian"]["id"])
 
     for book in library["books"]:
 
@@ -195,7 +195,16 @@ def get_entity_list(dsClient, request, kindOfEntity):
 
 def get_user_list(dsClient, request):
 
-    return get_entity_list(dsClient, request, constants.users)
+    query = dsClient.query(kind=constants.users)
+    users = list(query.fetch())
+    for u in users:
+        u["id"] = str(u.key.id)
+
+        for library in u["libraries"]:
+
+            library["self"] = get_self(request, constants.libraries, library["id"])
+
+    return users, 200
 
 
 # Return a list of all libraries where the librarian's unique_id matches the user's JWT sub value.
@@ -251,6 +260,20 @@ def delete_library(dsClient, id, sub):
         book_entity["library"] = None
         dsClient.put(book_entity)
 
+    # Need to delete the library from the user as well
+    user_id = library["librarian"]["id"]
+    user_key = dsClient.key(constants.users, int(user_id))
+    user = dsClient.get(key=user_key)
+    # Remove our library from the user
+    # https://www.geeksforgeeks.org/python-removing-dictionary-from-list-of-dictionaries/
+    # https://docs.python.org/3/library/stdtypes.html#range
+    for i in range(len(user["libraries"])):
+
+        if user["libraries"][i]["id"] == id:
+            del user["libraries"][i]
+            dsClient.put(user)
+            break
+
     dsClient.delete(library_key)
 
     return "", 204
@@ -268,7 +291,8 @@ def delete_book(dsClient, id):
 
     if book["library"] is not None:
 
-        library_key = dsClient.key(constants.books, int(id))
+        library_id = book["library"]["id"]
+        library_key = dsClient.key(constants.libraries, int(library_id))
         library = dsClient.get(key=library_key)
 
         # Remove our book from the library
